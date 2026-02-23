@@ -4,6 +4,7 @@ import javax.servlet.ServletContextEvent;
 import javax.servlet.ServletContextListener;
 import javax.servlet.annotation.WebListener;
 import java.time.Duration;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
@@ -43,16 +44,11 @@ public class SchedulerContextListener implements ServletContextListener {
             long period;
 
             if (TEST_MODE) {
-                 // 테스트 모드: 10초마다 실행
-                 initialDelay = 5; // 5초 후 첫 실행
-                 period = 10; // 10초마다 반복
+                // 테스트 모드: 10초마다 실행
+                initialDelay = 5; // 5초 후 첫 실행
+                period = 10; // 10초마다 반복
 
-//                // 운영모드 : 24시간마다 9시에 실행
-//                long initialDelay = calculateInitialDelay(); // 매일 9시
-//                long period = TimeUnit.DAYS.toSeconds(1);    // 24시간마다
-
-                // System.out.println("⚠️  테스트 모드 활성화");
-                System.out.println("⚠️  운영 모드 활성화");
+                System.out.println("⚠️  테스트 모드 활성화");
                 System.out.println("스케줄러 등록 완료!");
                 System.out.println("- 첫 실행: " + initialDelay + "초 후");
                 System.out.println("- 반복 주기: " + period + "초마다");

@@ -1,22 +1,16 @@
 package com.scheduler;
 
-import java.io.BufferedReader;
-import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.sql.CallableStatement;
 import java.sql.Connection;
 import java.sql.DriverManager;
-import java.sql.SQLException;
+import java.sql.ResultSet;
+import java.sql.Statement;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
-
 
 /**
  * 간단한 테스트용 스케줄 작업
@@ -31,6 +25,15 @@ public class SimpleSchedulerTask implements Runnable {
         this.formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     }
 
+    // =============================================
+    // DB 접속 정보
+    // =============================================
+
+    private static final String DRIVER   = "com.microsoft.sqlserver.jdbc.SQLServerDriver";
+    private static final String URL      = "jdbc:sqlserver://218.38.64.229;databaseName=iPlusERP_Test;encrypt=false;trustServerCertificate=true;";
+    private static final String USERNAME = "erpUser";
+    private static final String PASSWORD = "erpPasswd";
+
     @Override
     public void run() {
         executionCount++;
@@ -42,8 +45,12 @@ public class SimpleSchedulerTask implements Runnable {
         System.out.println("========================================");
 
         try {
-            // 스케쥴링 로직 시작
+            // 작업 1: 데이터베이스 작업 시뮬레이션
             executeTask1();
+
+            // 작업 2: API 호출 시뮬레이션
+            List<String> employeeNoList = executeTask1();
+            executeTask2(employeeNoList);
 
             System.out.println("모든 작업 완료!");
             System.out.println("== ======================================\n");
@@ -56,194 +63,96 @@ public class SimpleSchedulerTask implements Runnable {
     }
 
     /**
-     * 작업 1: 데이터베이스 작업 시뮬레이션
-     * (실제로는 Stored Procedure 호출)
+     * 작업 1: 데이터베이스 호출
      */
-//    private void executeTask1() throws InterruptedException {
-//        System.out.println("\n[1/2] 데이터베이스 작업 시작...");
-//
-//         // 2초 대기 (실제 작업 시뮬레이션)
-//         Thread.sleep(2000);
-//
-////        Connection conn = ... (DB 연결)
-////        CallableStatement stmt = conn.prepareCall("{SAFE_INVOICE_NOTICE}");
-////        stmt.execute();
-//
-//        System.out.println("  → SP_DAILY_SCHEDULED_TASK 실행 완료 (시뮬레이션)");
-//        System.out.println("  → 처리된 레코드: 150개");
-//        System.out.println("[1/2] ✓ 데이터베이스 작업 완료");
-//    }
-    private void executeTask1() {
-        System.out.println("\n[1/2] 데이터베이스 작업 시작...");
+    private List<String> executeTask1() throws Exception {
+        Connection conn = null;
+        Statement  stmt = null;
+        ResultSet  rs   = null;
 
-        String url = "jdbc:sqlserver://218.38.64.229:1433;databaseName=iPlusERP_Test";
-        String user = "erpUser";
-        String password = "erpPasswd";
+        List<String> employeeNoList = new ArrayList<>();
 
-        String sql = "{call SAFE_INVOICE_NOTICE(?)}";
+        try {
+            // DB 접속
+            Class.forName(DRIVER);
+            conn = DriverManager.getConnection(URL, USERNAME, PASSWORD);
+            stmt = conn.createStatement();
 
-        List<Map<String, String>> resultList = new ArrayList<>();
+            // SP 호출
+            String sql = "EXEC SAFE_INVOICE_NOTICE ";
 
-        try (Connection conn = DriverManager.getConnection(url, user, password);
-             CallableStatement stmt = conn.prepareCall(sql)) {
+            System.out.println("\n[1/2] 데이터베이스 작업 시작...");
+            System.out.println(sql);
 
-            stmt.registerOutParameter(1, java.sql.Types.INTEGER);
+            rs = stmt.executeQuery(sql);
 
-            // 프로시저 실행
-            boolean hasResults = stmt.execute();
+            int processedCount = 0;
+            while (rs.next()) {
+                processedCount++;
 
-            // ResultSet으로 데이터 받기
-            if (hasResults) {
-                try (java.sql.ResultSet rs = stmt.getResultSet()) {
-                    while (rs.next()) {
-                        Map<String, String> row = new HashMap<>();
-
-                        // DB에서 반환하는 컬럼들 (실제 컬럼명에 맞게 수정)
-                        row.put("notiGbn", rs.getString("NOTI_GBN"));           // 알림구분
-                        row.put("companyCode", rs.getString("COMPANY_CODE"));   // 회사코드
-                        row.put("empCode", rs.getString("EMP_CODE"));           // 직원코드
-                        row.put("senderCode", rs.getString("SENDER_CODE"));     // 발신자코드
-                        row.put("title", rs.getString("TITLE"));                // 제목
-                        row.put("body", rs.getString("BODY"));                  // 내용
-
-                        resultList.add(row);
-                    }
-                }
+                // EMPLOYEE_NO 수집 (실제 컬럼명으로 변경)
+                String employeeNo = rs.getString("EMPLOYEE_NO");
+                employeeNoList.add(employeeNo);
+                System.out.println("  → 수집된 사번: " + employeeNo); //완료시 주석필수
             }
-
-            int processedCount = stmt.getInt(1);
-
-            System.out.println("  → " + sql + " 실행 완료");
+            //완료시 주석필수
             System.out.println("  → 처리된 레코드: " + processedCount + "개");
-            System.out.println("  → 알림 대상: " + resultList.size() + "건");
+            System.out.println("  → 수집된 사번 목록: " + employeeNoList);
             System.out.println("[1/2] ✓ 데이터베이스 작업 완료");
 
-            // Task2로 결과 전달
-            if (!resultList.isEmpty()) {
-                executeTask2(resultList);
-            }
-
-        } catch (SQLException e) {
-            System.err.println("  → [SQL 오류] " + e.getMessage());
-            e.printStackTrace();
-        } catch (Exception e) {
-            System.err.println("  → [API 호출 오류] " + e.getMessage());
-            e.printStackTrace();
+        } finally {
+            try { if (rs   != null) rs.close();   } catch (Exception e) {}
+            try { if (stmt != null) stmt.close(); } catch (Exception e) {}
+            try { if (conn != null) conn.close(); } catch (Exception e) {}
         }
+
+        return employeeNoList;
     }
 
     /**
-     * 작업 2: .NET Core FCM API 호출
+     * 작업 2: API 호출 시뮬레이션
+     * (실제로는 FCM API 호출)
      */
-    private void executeTask2(List<Map<String, String>> resultList) throws Exception {
-        System.out.println("\n[2/2] API 호출 시작...");
-
-        String apiUrl = "http://localhost:5094/api/Fcm/FcmPassivity";
-
-        // 같은 알림 내용끼리 그룹핑 (companyCode + title + body 기준)
-        Map<String, List<Map<String, String>>> grouped = new HashMap<>();
-
-        for (Map<String, String> row : resultList) {
-            String key = row.get("companyCode") + "|" +
-                    row.get("notiGbn") + "|" +
-                    row.get("title") + "|" +
-                    row.get("body");
-
-            grouped.computeIfAbsent(key, k -> new ArrayList<>()).add(row);
-        }
-
-        int totalSent = 0;
-
-        // 그룹별로 API 호출
-        for (List<Map<String, String>> group : grouped.values()) {
-            Map<String, String> first = group.get(0);
-
-            // empList 생성 (같은 그룹의 직원코드들 수집)
-            StringBuilder empListJson = new StringBuilder();
-            for (int i = 0; i < group.size(); i++) {
-                if (i > 0) empListJson.append(",");
-                empListJson.append("\"").append(group.get(i).get("empCode")).append("\"");
-            }
-
-            // JSON 페이로드 생성
-            String jsonPayload = String.format(
-                    "{" +
-                            "\"notiGbn\":\"%s\"," +
-                            "\"companyCode\":\"%s\"," +
-                            "\"empList\":[%s]," +
-                            "\"senderCode\":\"%s\"," +
-                            "\"title\":\"%s\"," +
-                            "\"body\":\"%s\"" +
-                            "}",
-                    first.get("notiGbn"),
-                    first.get("companyCode"),
-                    empListJson.toString(),
-                    first.get("senderCode"),
-                    first.get("title"),
-                    first.get("body")
-            );
-
-            System.out.println("  → 발송 JSON: " + jsonPayload);
-
-            // API 호출
-            boolean success = callFcmApi(apiUrl, jsonPayload);
-            if (success) {
-                totalSent += group.size();
-            }
-
-            System.out.println("  → 그룹 발송: " + group.size() + "명");
-        }
-
-        System.out.println("  → 총 FCM 발송 완료: " + totalSent + "건");
-        System.out.println("[2/2] ✓ API 호출 완료");
-    }
-
     /**
-     * FCM API 실제 호출
+     * 작업 2: FCM API 호출
      */
-    private boolean callFcmApi(String apiUrl, String jsonPayload) {
-        try {
-            URL url = new URL(apiUrl);
-            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+    private void executeTask2(List<String> employeeNoList) throws Exception {
+        System.out.println("\n[2/2] FCM API 호출 시작...");
 
-            conn.setRequestMethod("POST");
-            conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
-            conn.setDoOutput(true);
-            conn.setConnectTimeout(10000);
-            conn.setReadTimeout(10000);
+        URL url = new URL("http://218.38.64.229:40110/api/Fcm/FcmPassivity");
+        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
 
-            // 요청 본문 전송
-            try (OutputStream os = conn.getOutputStream()) {
-                byte[] input = jsonPayload.getBytes("UTF-8");
-                os.write(input, 0, input.length);
-            }
+        conn.setRequestMethod("POST");
+        conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+        conn.setDoOutput(true);
 
-            // 응답 읽기
-            int responseCode = conn.getResponseCode();
-            StringBuilder response = new StringBuilder();
-
-            InputStream is = (responseCode >= 200 && responseCode < 300)
-                    ? conn.getInputStream()
-                    : conn.getErrorStream();
-
-            try (BufferedReader br = new BufferedReader(
-                    new InputStreamReader(is, "UTF-8"))) {
-                String responseLine;
-                while ((responseLine = br.readLine()) != null) {
-                    response.append(responseLine.trim());
-                }
-            }
-
-            System.out.println("    → 응답 코드: " + responseCode);
-            System.out.println("    → 응답 본문: " + response.toString());
-
-            conn.disconnect();
-
-            return responseCode >= 200 && responseCode < 300;
-
-        } catch (Exception e) {
-            System.err.println("    → API 호출 실패: " + e.getMessage());
-            return false;
+        // EmpList 가공
+        StringBuilder empList = new StringBuilder();
+        for (int i = 0; i < employeeNoList.size(); i++) {
+            empList.append("\"").append(employeeNoList.get(i)).append("\"");
+            if (i < employeeNoList.size() - 1) empList.append(",");
         }
+
+        String body = "{"
+                + "\"notiGbn\":\"8\","
+                + "\"companyCode\":\"000001\","
+                + "\"empList\":[" + empList + "],"
+                + "\"senderCode\":\"0000\","
+                + "\"title\":\"업무연락 알림\","
+                + "\"body\":\"확인해야할 업무연락 알림이 도착했습니다.\""
+                + "}";
+
+        System.out.println("  → 요청 Body: " + body);
+
+        try (OutputStream os = conn.getOutputStream()) {
+            os.write(body.getBytes("UTF-8"));
+        }
+
+        int responseCode = conn.getResponseCode();
+        System.out.println("  → 응답 코드: " + responseCode);
+        System.out.println(responseCode == 200 ? "  → FCM 전송 성공" : "  → FCM 전송 실패");
+
+        conn.disconnect();
+        System.out.println("[2/2] ✓ FCM API 호출 완료");
     }
 }

@@ -4,7 +4,6 @@ import javax.servlet.ServletContextEvent;
 import javax.servlet.ServletContextListener;
 import javax.servlet.annotation.WebListener;
 import java.time.Duration;
-import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
@@ -19,16 +18,61 @@ import java.util.concurrent.TimeUnit;
  */
 @WebListener
 public class SchedulerContextListener implements ServletContextListener {
-
+    private static boolean isInitialized = false;
     private ScheduledExecutorService scheduler;
     private SimpleSchedulerTask schedulerTask;
 
     // 테스트 모드: true = 10초마다 실행, false = 매일 9시 실행
-    private static final boolean TEST_MODE = true;
+    private static final boolean TEST_MODE = false;
     private static final ZoneId KOREA_ZONE = ZoneId.of("Asia/Seoul");
 
+    public static void main(String[] args) {
+        SchedulerContextListener listener = new SchedulerContextListener();
+
+        System.out.println(">>> [시스템] 스케줄러 단독 실행 모드 시작");
+
+        // 1. 초기화 실행 (sce는 null로 전달)
+        listener.contextInitialized(null);
+
+        // 2. 프로세스 종료 시 안전하게 스케줄러를 끄기 위한 셧다운 후크 등록
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            System.out.println(">>> [시스템] 종료 신호 감지. 자원을 정리합니다...");
+            listener.contextDestroyed(null);
+        }));
+
+        // 3. 메인 스레드 유지
+        try {
+            System.out.println(">>> [시스템] 스케줄러가 정상 작동 중입니다.");
+            // 대기 상태 유지
+            Thread.currentThread().join();
+        } catch (InterruptedException e) {
+            System.err.println(">>> [에러] 메인 스레드 중단됨: " + e.getMessage());
+            Thread.currentThread().interrupt();
+        }
+    }
+
     @Override
-    public void contextInitialized(ServletContextEvent sce) {
+    public synchronized void contextInitialized(ServletContextEvent sce) {
+
+//        String contextPath = sce.getServletContext().getContextPath();
+////        if (!"".equals(contextPath)) {
+////            System.out.println("\n[중복 실행 차단] 현재 컨텍스트 [" + contextPath + "]는 스케줄러 실행 대상이 아닙니다.");
+////            return;
+////        }
+        if (sce != null && sce.getServletContext() != null) {
+            String contextPath = sce.getServletContext().getContextPath();
+            System.out.println("컨텍스트 경로: " + contextPath);
+        } else {
+            System.out.println(">>> [알림] 단독 실행 모드로 시작합니다.");
+        }
+
+        if (isInitialized) {
+            System.out.println("[중복 제어] 이미 초기화되었습니다. 중복 실행을 건너뜁니다.");
+            return;
+        }
+
+        isInitialized = true;
+
         System.out.println("\n========================================");
         System.out.println("스케줄러 초기화 시작");
         System.out.println("========================================");
@@ -45,8 +89,8 @@ public class SchedulerContextListener implements ServletContextListener {
 
             if (TEST_MODE) {
                 // 테스트 모드: 10초마다 실행
-                initialDelay = 5; // 5초 후 첫 실행
-                period = 10; // 10초마다 반복
+                initialDelay = 10; // 10초 후 첫 실행
+                period = 60; // 1분마다 반복
 
                 System.out.println("⚠️  테스트 모드 활성화");
                 System.out.println("스케줄러 등록 완료!");
@@ -75,7 +119,6 @@ public class SchedulerContextListener implements ServletContextListener {
                 period,
                 TimeUnit.SECONDS
             );
-
             System.out.println("========================================\n");
 
         } catch (Exception e) {
@@ -111,9 +154,14 @@ public class SchedulerContextListener implements ServletContextListener {
      */
     private long calculateInitialDelayForKST9AM() {
         ZonedDateTime nowKST = ZonedDateTime.now(KOREA_ZONE);
+//        ZonedDateTime nextRun = nowKST.toLocalDate()
+//            .atTime(LocalTime.of(9, 0))
+//            .atZone(KOREA_ZONE);
+
+        // 스케쥴링 테스트용
         ZonedDateTime nextRun = nowKST.toLocalDate()
-            .atTime(LocalTime.of(9, 0))
-            .atZone(KOREA_ZONE);
+                .atTime(LocalTime.of(9, 0))
+                .atZone(KOREA_ZONE);
 
         // 현재 시간이 오늘 9시를 지났다면 내일 9시로 설정
         if (nowKST.isAfter(nextRun)) {

@@ -7,19 +7,23 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.Statement;
+import java.time.DayOfWeek;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 간단한 테스트용 스케줄 작업
- * SP 호출 없이 로그만 출력
+ * 스케쥴링 실 운영 모드
  */
 public class SimpleSchedulerTask implements Runnable {
+    private static boolean isTaskRunning = false;
 
     private final DateTimeFormatter formatter;
     private int executionCount = 0;
+    private static final ZoneId KOREA_ZONE = ZoneId.of("Asia/Seoul");
 
     public SimpleSchedulerTask() {
         this.formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
@@ -30,12 +34,35 @@ public class SimpleSchedulerTask implements Runnable {
     // =============================================
 
     private static final String DRIVER   = "com.microsoft.sqlserver.jdbc.SQLServerDriver";
+
+    // 개발 커넥션
     private static final String URL      = "jdbc:sqlserver://218.38.64.229;databaseName=iPlusERP_Test;encrypt=false;trustServerCertificate=true;";
+
+//    // 운영 커넥션
+//    private static final String URL      = "jdbc:sqlserver://218.38.64.229;databaseName=iPlusERP;encrypt=false;trustServerCertificate=true;";
+
     private static final String USERNAME = "erpUser";
     private static final String PASSWORD = "erpPasswd";
 
     @Override
     public void run() {
+        // 중복 실행 체크
+        synchronized (SimpleSchedulerTask.class) {
+            if (isTaskRunning) {
+                System.out.println("\n[중복 차단] 이미 다른 작업이 진행 중입니다. 이번 실행은 무시합니다.");
+                return;
+            }
+            isTaskRunning = true;
+        }
+        try {
+            ZonedDateTime nowKST = ZonedDateTime.now(KOREA_ZONE);
+            DayOfWeek week = nowKST.getDayOfWeek();
+
+//        if (week != DayOfWeek.MONDAY) {
+//            System.out.println("\n[알림] " + nowKST.format(formatter) + "[Task Skip] 월요일이 아니므로 작업 스킵");
+//            return;
+//        }
+
         executionCount++;
         String currentTime = LocalDateTime.now().format(formatter);
 
@@ -44,21 +71,24 @@ public class SimpleSchedulerTask implements Runnable {
         System.out.println("실행 시간: " + currentTime);
         System.out.println("========================================");
 
-        try {
             // 작업 1: 데이터베이스 작업 시뮬레이션
-            executeTask1();
+            List<String> employeeNoList = executeTask1();
 
             // 작업 2: API 호출 시뮬레이션
-            List<String> employeeNoList = executeTask1();
             executeTask2(employeeNoList);
 
             System.out.println("모든 작업 완료!");
-            System.out.println("== ======================================\n");
+            System.out.println("========================================\n");
 
         } catch (Exception e) {
             System.err.println("작업 실행 중 오류 발생: " + e.getMessage());
             e.printStackTrace();
             System.out.println("========================================\n");
+        } finally {
+            //작업이 끝나면 중복 호출 해제
+            synchronized (SimpleSchedulerTask.class) {
+                isTaskRunning = false;
+            }
         }
     }
 
@@ -66,64 +96,56 @@ public class SimpleSchedulerTask implements Runnable {
      * 작업 1: 데이터베이스 호출
      */
     private List<String> executeTask1() throws Exception {
-        Connection conn = null;
-        Statement  stmt = null;
-        ResultSet  rs   = null;
-
         List<String> employeeNoList = new ArrayList<>();
 
-        try {
-            // DB 접속
-            Class.forName(DRIVER);
-            conn = DriverManager.getConnection(URL, USERNAME, PASSWORD);
-            stmt = conn.createStatement();
+        Class.forName(DRIVER);
 
-            // SP 호출
-            String sql = "EXEC SAFE_INVOICE_NOTICE ";
+        try (Connection conn = DriverManager.getConnection(URL, USERNAME, PASSWORD);
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery("EXEC SAFE_INVOICE_NOTICE ")) {
 
             System.out.println("\n[1/2] 데이터베이스 작업 시작...");
-            System.out.println(sql);
-
-            rs = stmt.executeQuery(sql);
+            System.out.println("쿼리 실행: EXEC SAFE_INVOICE_NOTICE ");
 
             int processedCount = 0;
             while (rs.next()) {
                 processedCount++;
-
-                // EMPLOYEE_NO 수집 (실제 컬럼명으로 변경)
                 String employeeNo = rs.getString("EMPLOYEE_NO");
                 employeeNoList.add(employeeNo);
-                System.out.println("  → 수집된 사번: " + employeeNo); //완료시 주석필수
             }
-            //완료시 주석필수
+
             System.out.println("  → 처리된 레코드: " + processedCount + "개");
             System.out.println("  → 수집된 사번 목록: " + employeeNoList);
             System.out.println("[1/2] ✓ 데이터베이스 작업 완료");
 
-        } finally {
-            try { if (rs   != null) rs.close();   } catch (Exception e) {}
-            try { if (stmt != null) stmt.close(); } catch (Exception e) {}
-            try { if (conn != null) conn.close(); } catch (Exception e) {}
+        } catch (Exception e) {
+            System.err.println("DB 작업 중 상세 에러: " + e.getMessage());
+            throw e;
         }
 
         return employeeNoList;
     }
 
     /**
-     * 작업 2: API 호출 시뮬레이션
-     * (실제로는 FCM API 호출)
-     */
-    /**
      * 작업 2: FCM API 호출
      */
     private void executeTask2(List<String> employeeNoList) throws Exception {
         System.out.println("\n[2/2] FCM API 호출 시작...");
 
-        URL url = new URL("http://218.38.64.229:40110/api/Fcm/FcmPassivity");
+        //통합서버 개발 API
+        URL url = new URL("http://192.168.80.27:4110/api/Fcm/FcmPassivity");
+
+//        //개발 API
+//        URL url = new URL("http://218.38.64.229:40110/api/Fcm/FcmPassivity");
+
+//        //운영 API
+//        URL url = new URL("http://218.38.64.229:40220/api/Fcm/FcmPassivity");
+
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
 
         conn.setRequestMethod("POST");
         conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+        conn.setRequestProperty("SECURITY_CODE", "4000");
         conn.setDoOutput(true);
 
         // EmpList 가공

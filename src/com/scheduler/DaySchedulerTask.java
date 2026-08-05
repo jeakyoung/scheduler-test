@@ -16,39 +16,29 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 스케쥴링 실 운영 모드
- * 기존 업무연락 로직 -> 현 폐기상태
+ * 스케쥴링 실 운영 모드 - 일 단위 실행 (매일 오전 9시)
  */
-public class SimpleSchedulerTask implements Runnable {
+public class DaySchedulerTask implements Runnable {
     private static boolean isTaskRunning = false;
 
     private final DateTimeFormatter formatter;
     private int executionCount = 0;
     private static final ZoneId KOREA_ZONE = ZoneId.of("Asia/Seoul");
 
-    public SimpleSchedulerTask() {
+    public DaySchedulerTask() {
         this.formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     }
 
     // =============================================
-    // DB 접속 정보
+    // DB 접속 정보 (config.properties에서 로드)
     // =============================================
 
-    private static final String DRIVER   = "com.microsoft.sqlserver.jdbc.SQLServerDriver";
-
-    // 개발 커넥션
-    private static final String URL      = "jdbc:sqlserver://218.38.64.229;databaseName=iPlusERP_Test;encrypt=false;trustServerCertificate=true;";
-
-//    // 운영 커넥션
-//    private static final String URL      = "jdbc:sqlserver://218.38.64.229;databaseName=iPlusERP;encrypt=false;trustServerCertificate=true;";
-
-    private static final String USERNAME = "erpUser";
-    private static final String PASSWORD = "erpPasswd";
+    private static final String DRIVER = "com.microsoft.sqlserver.jdbc.SQLServerDriver";
 
     @Override
     public void run() {
         // 중복 실행 체크
-        synchronized (SimpleSchedulerTask.class) {
+        synchronized (DaySchedulerTask.class) {
             if (isTaskRunning) {
                 System.out.println("\n[중복 차단] 이미 다른 작업이 진행 중입니다. 이번 실행은 무시합니다.");
                 return;
@@ -59,16 +49,16 @@ public class SimpleSchedulerTask implements Runnable {
             ZonedDateTime nowKST = ZonedDateTime.now(KOREA_ZONE);
             DayOfWeek week = nowKST.getDayOfWeek();
 
-//        if (week != DayOfWeek.MONDAY) {
-//            System.out.println("\n[알림] " + nowKST.format(formatter) + "[Task Skip] 월요일이 아니므로 작업 스킵");
-//            return;
-//        }
+            if (week != DayOfWeek.MONDAY) {
+                System.out.println("\n[일 단위] [스킵] " + nowKST.format(formatter) + " - 월요일이 아니므로 실행하지 않습니다.");
+                return;
+            }
 
         executionCount++;
         String currentTime = LocalDateTime.now().format(formatter);
 
         System.out.println("\n========================================");
-        System.out.println("스케줄 작업 실행 #" + executionCount);
+        System.out.println("[일 단위] 스케줄 작업 실행 #" + executionCount);
         System.out.println("실행 시간: " + currentTime);
         System.out.println("========================================");
 
@@ -87,7 +77,7 @@ public class SimpleSchedulerTask implements Runnable {
             System.out.println("========================================\n");
         } finally {
             //작업이 끝나면 중복 호출 해제
-            synchronized (SimpleSchedulerTask.class) {
+            synchronized (DaySchedulerTask.class) {
                 isTaskRunning = false;
             }
         }
@@ -101,12 +91,12 @@ public class SimpleSchedulerTask implements Runnable {
 
         Class.forName(DRIVER);
 
-        try (Connection conn = DriverManager.getConnection(URL, USERNAME, PASSWORD);
+        try (Connection conn = DriverManager.getConnection(Config.getDbUrl(), Config.getDbUsername(), Config.getDbPassword());
              Statement stmt = conn.createStatement();
-             ResultSet rs = stmt.executeQuery("EXEC SAFE_INVOICE_NOTICE ")) {
+             ResultSet rs = stmt.executeQuery("EXEC SP_WORK_LIMIT_LIST ")) {
 
             System.out.println("\n[1/2] 데이터베이스 작업 시작...");
-            System.out.println("쿼리 실행: EXEC SAFE_INVOICE_NOTICE ");
+            System.out.println("쿼리 실행: EXEC SP_WORK_LIMIT_LIST ");
 
             int processedCount = 0;
             while (rs.next()) {
@@ -133,14 +123,7 @@ public class SimpleSchedulerTask implements Runnable {
     private void executeTask2(List<String> employeeNoList) throws Exception {
         System.out.println("\n[2/2] FCM API 호출 시작...");
 
-        //통합서버 개발 API
-        URL url = new URL("http://192.168.80.27:4110/api/Fcm/FcmPassivity");
-
-//        //개발 API
-//        URL url = new URL("http://218.38.64.229:40110/api/Fcm/FcmPassivity");
-
-//        //운영 API
-//        URL url = new URL("http://218.38.64.229:40220/api/Fcm/FcmPassivity");
+        URL url = new URL(Config.getFcmUrl());
 
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
 

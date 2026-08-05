@@ -1,0 +1,12 @@
+# ========================
+# 설정 파일 템플릿
+# config-dev.properties 또는 config-prod.properties 로 복사 후 값 입력
+# ========================
+
+# DB 접속 정보
+db.url=jdbc:sqlserver://[HOST];databaseName=[DB_NAME];encrypt=false;trustServerCertificate=true;
+db.username=[DB_USERNAME]
+db.password=[DB_PASSWORD]
+
+# FCM API
+fcm.url=http://[HOST]:[PORT]/api/Fcm/FcmPassivity

@@ -42,7 +42,7 @@ public class ManualExecutor extends HttpServlet {
             out.println("<h1>스케줄러 테스트 페이지</h1>");
 
             // 스케줄러 실행
-            SimpleSchedulerTask task = new SimpleSchedulerTask();
+            DaySchedulerTask task = new DaySchedulerTask();
             task.run();
 
             out.println("<p class='success'>스케줄러가 수동으로 실행되었습니다!</p>");

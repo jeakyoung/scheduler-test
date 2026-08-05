@@ -1,2 +1,14 @@
 # 프로젝트 제외 경로
 /out/
+
+# 민감 정보
+config-dev.properties
+config-prod.properties
+WEB-INF/classes/config.properties
+
+# 빌드 산출물
+*.war
+WEB-INF/classes/
+
+# 바이너리 의존성
+WEB-INF/lib/*.jar
